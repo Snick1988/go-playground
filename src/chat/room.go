@@ -20,10 +20,15 @@ type room struct {
     clients map[*client]bool
 }
 
+const (
+    socketBufferSize  = 1024
+    messageBufferSize = 256
+)
+
 // newRoom makes a new room that is ready to go.
 func newRoom() *room {
     return &room{
-        forward: make(chan []byte),
+        forward: make(chan []byte, messageBufferSize),
         join:    make(chan *client),
         leave:   make(chan *client),
         clients: make(map[*client]bool),
@@ -36,6 +41,7 @@ func (r *room) run() {
         case client := <- r.join:
             // Client joins
             r.clients[client] = true
+            r.forward <- []byte(fmt.Sprintf("%s joined the room", client.name))
         case client := <- r.leave:
             // Client leaves
             delete(r.clients, client)
@@ -55,11 +61,6 @@ func (r *room) run() {
     }
 }
 
-const (
-    socketBufferSize  = 1024
-    messageBufferSize = 256
-)
-
 var upgrader = &websocket.Upgrader{ReadBufferSize: socketBufferSize, WriteBufferSize: socketBufferSize}
 
 func (r *room) ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -68,7 +69,7 @@ func (r *room) ServeHTTP(w http.ResponseWriter, req *http.Request) {
         log.Fatal("ServeHTTP:", err)
         return
     }
-    
+
     names := make([]string, 0)
     names = append(names, "Dude", "Bro", "Pal", "Bub", "Man", "Brah", "Guy", "Buddy")
 
@@ -79,10 +80,10 @@ func (r *room) ServeHTTP(w http.ResponseWriter, req *http.Request) {
         // Make random name here
         name:   fmt.Sprintf("%s%d", names[rand.Intn(len(names))], rand.Intn(100)),
     }
-     
+
     r.join <- client
     defer func() { r.leave <- client }()
-     
+
     go client.write()
     client.read()
 }
